@@ -29,7 +29,8 @@ fi
 # ── 2. Install directory + virtualenv ─────────────────────────────────────────
 echo "--> Setting up $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
-if [ ! -d "$VENV" ]; then
+if [ ! -x "$VENV/bin/pip" ]; then
+    rm -rf "$VENV"
     python3 -m venv "$VENV"
 fi
 "$VENV/bin/pip" install --quiet --upgrade pip

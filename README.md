@@ -75,3 +75,25 @@ plex.domain.tld {
 
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.
+
+## Split-horizon DNS (fix LAN QUIC/connection errors)
+
+When accessing `name.domain.tld` from inside the LAN, the public DNS resolves to
+your external IP. If your router doesn't hairpin NAT reliably — common with
+QUIC/HTTP3 on MikroTik — you'll get QUIC errors or `CONNECTION_REFUSED`.
+
+Set `caddy_host` in `config.ini` to Caddy's LAN IP to fix this:
+
+```ini
+[caddy]
+caddy_host = 10.0.0.X
+```
+
+The sync will then create RouterOS static DNS entries for each `revprox` VM:
+
+```
+plex.domain.tld → 10.0.0.X  (Caddy's LAN IP)
+```
+
+LAN clients resolve the external domain directly to Caddy, bypassing NAT
+entirely. Public DNS is unaffected.

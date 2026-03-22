@@ -85,15 +85,21 @@ def get_pve_vms(cfg: configparser.ConfigParser) -> dict[int, dict]:
     return vms
 
 
-def parse_revprox(tags: set[str]) -> tuple[bool, str | None]:
-    """Return (enabled, port_or_None) from a set of PVE tags."""
+def parse_revprox(tags: set[str]) -> tuple[bool, str | None, str | None]:
+    """Return (enabled, port_or_None, public_name_or_None) from a set of PVE tags.
+
+    Tag formats:
+      revprox-8080           → enabled, port 8080, public subdomain matches VM name
+      revprox-8080-watch     → enabled, port 8080, public subdomain "watch"
+    """
     for tag in tags:
-        if tag == "revprox":
-            return True, None
+        m = re.match(r"^revprox-(\d+)-([a-z0-9-]+)$", tag)
+        if m:
+            return True, m.group(1), m.group(2)
         m = re.match(r"^revprox-(\d+)$", tag)
         if m:
-            return True, m.group(1)
-    return False, None
+            return True, m.group(1), None
+    return False, None, None
 
 
 # ── RouterOS DNS ──────────────────────────────────────────────────────────────
@@ -189,7 +195,7 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
 
     if caddy_host and ext_domain:
         desired_ext: dict[str, str] = {
-            f"{info['name']}.{ext_domain}": caddy_host
+            f"{(parse_revprox(info['tags'])[2] or info['name'])}.{ext_domain}": caddy_host
             for vmid, info in vms.items()
             if parse_revprox(info["tags"])[0]
         }
@@ -223,10 +229,11 @@ def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str) ->
     blocks = []
     for vmid in sorted(vms):
         info = vms[vmid]
-        enabled, port = parse_revprox(info["tags"])
+        enabled, port, public_name = parse_revprox(info["tags"])
         if enabled:
             ip = f"{prefix}.{vmid}"
-            blocks.append(build_caddy_block(info["name"], ext_domain, ip, port))
+            name = public_name or info["name"]
+            blocks.append(build_caddy_block(name, ext_domain, ip, port))
     return CADDY_START + "\n" + "".join(blocks) + CADDY_END + "\n"
 
 

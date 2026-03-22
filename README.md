@@ -5,7 +5,7 @@ optionally manages Caddy reverse proxy blocks.
 
 - VMID determines IP: VM `104 (plex)` → `plex.lan` = `10.0.0.104`
 - IPs below `.100` are never touched
-- VMs/LXCs tagged `revprox` or `revprox-PORT` get a block in the Caddyfile
+- VMs/LXCs tagged `revprox-PORT` or `revprox-PORT-pubname` get a block in the Caddyfile
 - Runs every 5 minutes via systemd timer, logs to journald
 
 ## IP address assumption
@@ -62,8 +62,8 @@ available automatically — no extra toggle needed.
 
 ## Caddy reverse proxy
 
-Tag a VM with `revprox` or `revprox-PORT` in Proxmox. On the next sync the
-Caddyfile gains a managed block:
+Tag a VM with `revprox-PORT` in Proxmox. On the next sync the Caddyfile gains
+a managed block using the VM name as the public subdomain:
 
 ```
 # BEGIN pve-ros-sync
@@ -72,6 +72,10 @@ plex.domain.tld {
 }
 # END pve-ros-sync
 ```
+
+To use a **different public subdomain** than the VM name, append it to the tag:
+`revprox-PORT-pubname`. For example, VM `104 (plex)` tagged `revprox-1337-watch`
+produces `watch.domain.tld` instead of `plex.domain.tld`.
 
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.

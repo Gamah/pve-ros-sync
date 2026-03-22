@@ -223,9 +223,9 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> bool:
     return True
 
 
-def reload_caddy() -> None:
+def reload_caddy(caddyfile: str) -> None:
     result = subprocess.run(
-        ["systemctl", "reload", "caddy"],
+        ["caddy", "reload", "--config", caddyfile],
         capture_output=True,
         text=True,
     )
@@ -258,7 +258,7 @@ def main() -> None:
         try:
             changed = sync_caddy(cfg, vms)
             if changed:
-                reload_caddy()
+                reload_caddy(cfg["caddy"]["caddyfile"])
         except Exception as exc:
             log.error("Caddy sync failed: %s", exc)
 

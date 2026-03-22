@@ -150,12 +150,18 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
     for fqdn, ip in desired.items():
         if fqdn not in current:
             log.info("DNS add    %-35s → %s", fqdn, ip)
-            dns_path.add(name=fqdn, address=ip, comment="pve-ros-sync")
-        elif current[fqdn].get("address") != ip:
-            log.info("DNS update %-35s → %s (was %s)", fqdn, ip, current[fqdn]["address"])
-            dns_path.update(**{".id": current[fqdn][".id"], "address": ip, "comment": "pve-ros-sync"})
+            dns_path.add(name=fqdn, address=ip)
         else:
-            log.debug("DNS ok     %s → %s", fqdn, ip)
+            entry = current[fqdn]
+            needs_update = entry.get("address") != ip or entry.get("comment", "")
+            if needs_update:
+                if entry.get("address") != ip:
+                    log.info("DNS update %-35s → %s (was %s)", fqdn, ip, entry["address"])
+                else:
+                    log.info("DNS clear comment %-28s", fqdn)
+                dns_path.update(**{".id": entry[".id"], "address": ip, "comment": ""})
+            else:
+                log.debug("DNS ok     %s → %s", fqdn, ip)
 
     # Remove stale entries (in range but no longer in PVE)
     for fqdn, entry in current.items():
@@ -166,10 +172,8 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────
 
-def build_caddy_block(name: str, ext_domain: str, local_domain: str, port: str | None) -> str:
-    upstream = f"{name}.{local_domain}"
-    if port:
-        upstream = f"{upstream}:{port}"
+def build_caddy_block(name: str, ext_domain: str, ip: str, port: str | None) -> str:
+    upstream = ip if not port else f"{ip}:{port}"
     return (
         f"{name}.{ext_domain} {{\n"
         f"    reverse_proxy {upstream}\n"
@@ -177,13 +181,14 @@ def build_caddy_block(name: str, ext_domain: str, local_domain: str, port: str |
     )
 
 
-def build_managed_section(vms: dict[int, dict], ext_domain: str, local_domain: str) -> str:
+def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str) -> str:
     blocks = []
     for vmid in sorted(vms):
         info = vms[vmid]
         enabled, port = parse_revprox(info["tags"])
         if enabled:
-            blocks.append(build_caddy_block(info["name"], ext_domain, local_domain, port))
+            ip = f"{prefix}.{vmid}"
+            blocks.append(build_caddy_block(info["name"], ext_domain, ip, port))
     return CADDY_START + "\n" + "".join(blocks) + CADDY_END + "\n"
 
 
@@ -192,10 +197,10 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> bool:
     caddy_cfg = cfg["caddy"]
     caddyfile = Path(caddy_cfg["caddyfile"])
     ext_domain = caddy_cfg["domain"]
-    local_domain = cfg["dns"]["domain"]
+    prefix = cfg["dns"]["network_prefix"]
 
     old_content = caddyfile.read_text()
-    new_block = build_managed_section(vms, ext_domain, local_domain)
+    new_block = build_managed_section(vms, ext_domain, prefix)
 
     pattern = re.compile(
         rf"^{re.escape(CADDY_START)}\n.*?^{re.escape(CADDY_END)}\n?",

@@ -100,18 +100,23 @@ def parse_revprox(tags: set[str]) -> tuple[bool, str | None]:
 
 def ros_connect(cfg: configparser.ConfigParser):
     ros = cfg["routeros"]
-    return librouteros.connect(
-        host=ros["host"],
+    host = ros["host"]
+    log.info("ROS: connecting to %s:%s", host, ros.get("port", "8728"))
+    api = librouteros.connect(
+        host=host,
         username=ros["user"],
         password=ros["password"],
         port=int(ros.get("port", "8728")),
     )
+    log.info("ROS: connected")
+    return api
 
 
 def get_current_dns(api, prefix: str) -> dict[str, dict]:
     """Return all DNS static entries whose IP falls in prefix.100–255."""
     result = {}
-    for entry in api("/ip/dns/static/print"):
+    dns_path = api.path("ip", "dns", "static")
+    for entry in dns_path:
         addr = entry.get("address", "")
         name = entry.get("name", "")
         if not addr or not name:
@@ -124,6 +129,7 @@ def get_current_dns(api, prefix: str) -> dict[str, dict]:
             continue
         if 100 <= last <= 255:
             result[name] = entry
+    log.info("ROS: found %d existing DNS entries in range", len(result))
     return result
 
 
@@ -137,24 +143,17 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
     }
 
     api = ros_connect(cfg)
+    dns_path = api.path("ip", "dns", "static")
     current = get_current_dns(api, prefix)
 
     # Add / update
     for fqdn, ip in desired.items():
         if fqdn not in current:
             log.info("DNS add    %-35s → %s", fqdn, ip)
-            api("/ip/dns/static/add", **{
-                "name": fqdn,
-                "address": ip,
-                "comment": "pve-ros-sync",
-            })
+            dns_path.add(name=fqdn, address=ip, comment="pve-ros-sync")
         elif current[fqdn].get("address") != ip:
             log.info("DNS update %-35s → %s (was %s)", fqdn, ip, current[fqdn]["address"])
-            api("/ip/dns/static/set", **{
-                ".id": current[fqdn][".id"],
-                "address": ip,
-                "comment": "pve-ros-sync",
-            })
+            dns_path.update(**{".id": current[fqdn][".id"], "address": ip, "comment": "pve-ros-sync"})
         else:
             log.debug("DNS ok     %s → %s", fqdn, ip)
 
@@ -162,7 +161,7 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
     for fqdn, entry in current.items():
         if fqdn not in desired:
             log.info("DNS remove %-35s (was %s)", fqdn, entry.get("address"))
-            api("/ip/dns/static/remove", **{".id": entry[".id"]})
+            dns_path.remove(entry[".id"])
 
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────

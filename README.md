@@ -34,8 +34,8 @@ journalctl -u pve-ros-sync -f          # watch output
 
 ```bash
 pveum user add pve-ros-sync@pve
-pveum role add PVERosSync -privs "VM.Audit"
-pveum aclmod / -user pve-ros-sync@pve -role PVERosSync
+pveum role add RosSync -privs "VM.Audit"
+pveum aclmod / -user pve-ros-sync@pve -role RosSync
 pveum user token add pve-ros-sync@pve sync --privsep 0
 ```
 

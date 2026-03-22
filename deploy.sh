@@ -22,7 +22,7 @@ fi
 if ! command -v pip3 &>/dev/null; then
     apt-get install -y python3-pip
 fi
-if ! python3 -c "import venv" &>/dev/null; then
+if ! python3 -c "import ensurepip" &>/dev/null; then
     apt-get install -y python3-venv
 fi
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxmox → RouterOS DNS/Caddy sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/pve-ros-sync/venv/bin/python /usr/local/lib/pve-ros-sync/pve_ros_sync.py
+Environment=PVE_ROS_SYNC_CONFIG=/etc/pve-ros-sync/config.ini
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pve-ros-sync
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+[proxmox]
+host = 10.0.0.X
+user = pve-ros-sync@pve
+
+# Option A – API token (recommended for service accounts):
+#   pveum user add pve-ros-sync@pve
+#   pveum role add PVERosSync -privs "VM.Audit"
+#   pveum aclmod / -user pve-ros-sync@pve -role PVERosSync
+#   pveum user token add pve-ros-sync@pve sync --privsep 0
+# Then fill in token_name and token_value:
+token_name = sync
+token_value = xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# Option B – password auth (comment out token lines above, uncomment below):
+# password = changeme
+
+verify_ssl = false
+timeout = 10
+
+
+[routeros]
+; User must be in the "write" group (IP → Users in WinBox/WebFig)
+; The RouterOS API on port 8728 is available to all users automatically
+host = 10.0.0.1
+user = pve-sync
+password = changeme
+port = 8728
+
+
+[dns]
+; Suffix appended to VM names: plex → plex.lan
+domain = lan
+; First three octets of your LAN subnet
+network_prefix = 10.0.0
+
+
+[caddy]
+enabled = true
+caddyfile = /etc/caddy/Caddyfile
+; External domain used for reverse proxy blocks
+domain = domain.tld

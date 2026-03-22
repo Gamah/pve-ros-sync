@@ -1,0 +1,11 @@
+[Unit]
+Description=Run pve-ros-sync every 5 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+AccuracySec=10s
+Unit=pve-ros-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -8,6 +8,20 @@ optionally manages Caddy reverse proxy blocks.
 - VMs/LXCs tagged `revprox` or `revprox-PORT` get a block in the Caddyfile
 - Runs every 5 minutes via systemd timer, logs to journald
 
+## IP address assumption
+
+**This project does not assign or manage IP addresses.** It assumes that each
+VM/LXC already has the IP `<network_prefix>.<vmid>` — derived purely from the
+VMID. You are responsible for ensuring VMs actually use that address.
+
+Common approaches:
+- Assign a static IP inside the guest matching its VMID
+- Configure a DHCP reservation in RouterOS (**IP → DHCP Server → Leases**)
+  binding the guest's MAC to `<prefix>.<vmid>`
+
+If a VM's real IP doesn't match its VMID-derived address, DNS and reverse proxy
+entries will point to the wrong host and there will be no warning.
+
 ## Deploy
 
 ```bash
@@ -54,7 +68,7 @@ Caddyfile gains a managed block:
 ```
 # BEGIN pve-ros-sync
 plex.domain.tld {
-    reverse_proxy plex.lan:1337
+    reverse_proxy 10.0.0.104:1337
 }
 # END pve-ros-sync
 ```

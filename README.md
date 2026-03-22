@@ -5,7 +5,7 @@ optionally manages Caddy reverse proxy blocks.
 
 - VMID determines IP: VM `104 (plex)` → `plex.lan` = `10.0.0.104`
 - IPs below `.100` are never touched
-- VMs/LXCs tagged `revprox` or `revprox:PORT` get a block in the Caddyfile
+- VMs/LXCs tagged `revprox` or `revprox-PORT` get a block in the Caddyfile
 - Runs every 5 minutes via systemd timer, logs to journald
 
 ## Deploy
@@ -48,7 +48,7 @@ available automatically — no extra toggle needed.
 
 ## Caddy reverse proxy
 
-Tag a VM with `revprox` or `revprox:PORT` in Proxmox. On the next sync the
+Tag a VM with `revprox` or `revprox-PORT` in Proxmox. On the next sync the
 Caddyfile gains a managed block:
 
 ```

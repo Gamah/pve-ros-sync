@@ -90,7 +90,7 @@ def parse_revprox(tags: set[str]) -> tuple[bool, str | None]:
     for tag in tags:
         if tag == "revprox":
             return True, None
-        m = re.match(r"^revprox:(\d+)$", tag)
+        m = re.match(r"^revprox-(\d+)$", tag)
         if m:
             return True, m.group(1)
     return False, None

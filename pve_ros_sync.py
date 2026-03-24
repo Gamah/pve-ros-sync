@@ -130,14 +130,17 @@ def get_current_ext_dns(api, ext_domain: str, caddy_host: str) -> dict[str, dict
     return result
 
 
-def get_current_dns(api, prefix: str) -> dict[str, dict]:
-    """Return all DNS static entries whose IP falls in prefix.100–255."""
+def get_current_dns(api, prefix: str, domain: str) -> dict[str, dict]:
+    """Return all DNS static entries whose IP falls in prefix.100–255 and name ends in domain."""
     result = {}
+    suffix = "." + domain
     dns_path = api.path("ip", "dns", "static")
     for entry in dns_path:
         addr = entry.get("address", "")
         name = entry.get("name", "")
         if not addr or not name:
+            continue
+        if not name.endswith(suffix):
             continue
         if not addr.startswith(prefix + "."):
             continue
@@ -162,7 +165,7 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
 
     api = ros_connect(cfg)
     dns_path = api.path("ip", "dns", "static")
-    current = get_current_dns(api, prefix)
+    current = get_current_dns(api, prefix, domain)
 
     # Add / update
     for fqdn, ip in desired.items():

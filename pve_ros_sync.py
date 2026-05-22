@@ -78,28 +78,45 @@ def get_pve_vms(cfg: configparser.ConfigParser) -> dict[int, dict]:
 
                 tags_raw = vm.get("tags", "")
                 tags = {t for t in re.split(r"[;,\s]+", tags_raw) if t}
+                revprox = dedup_revprox(parse_revprox(tags), vmid, name)
 
-                vms[vmid] = {"name": name, "tags": tags}
+                vms[vmid] = {"name": name, "revprox": revprox}
 
     log.info("PVE: found %d hosts in VMID range 100–255", len(vms))
     return vms
 
 
-def parse_revprox(tags: set[str]) -> tuple[bool, str | None, str | None]:
-    """Return (enabled, port_or_None, public_name_or_None) from a set of PVE tags.
+def parse_revprox(tags: set[str]) -> list[tuple[str, str | None]]:
+    """Return list of (port, public_name_or_None) for all revprox-* tags.
 
     Tag formats:
-      revprox-8080           → enabled, port 8080, public subdomain matches VM name
-      revprox-8080-watch     → enabled, port 8080, public subdomain "watch"
+      revprox-8080           → port 8080, public subdomain matches VM name
+      revprox-8080-watch     → port 8080, public subdomain "watch"
     """
+    results = []
     for tag in tags:
         m = re.match(r"^revprox-(\d+)-([a-z0-9-]+)$", tag)
         if m:
-            return True, m.group(1), m.group(2)
+            results.append((m.group(1), m.group(2)))
+            continue
         m = re.match(r"^revprox-(\d+)$", tag)
         if m:
-            return True, m.group(1), None
-    return False, None, None
+            results.append((m.group(1), None))
+    return results
+
+
+def dedup_revprox(entries: list[tuple[str, str | None]], vmid: int, name: str) -> list[tuple[str, str | None]]:
+    """Deduplicate revprox entries, logging an error for each conflict."""
+    seen: set[str | None] = set()
+    result = []
+    for port, pubname in entries:
+        if pubname in seen:
+            label = f"'{pubname}'" if pubname is not None else "no pubname"
+            log.error("VMID %d (%s): duplicate revprox public name %s on port %s — ignoring", vmid, name, label, port)
+            continue
+        seen.add(pubname)
+        result.append((port, pubname))
+    return result
 
 
 # ── RouterOS DNS ──────────────────────────────────────────────────────────────
@@ -197,11 +214,11 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
     ext_domain = cfg["caddy"].get("domain", "").strip() if caddy_enabled else ""
 
     if caddy_host and ext_domain:
-        desired_ext: dict[str, str] = {
-            f"{(parse_revprox(info['tags'])[2] or info['name'])}.{ext_domain}": caddy_host
-            for vmid, info in vms.items()
-            if parse_revprox(info["tags"])[0]
-        }
+        desired_ext: dict[str, str] = {}
+        for vmid, info in vms.items():
+            for _port, pubname in info["revprox"]:
+                fqdn = f"{(pubname or info['name'])}.{ext_domain}"
+                desired_ext[fqdn] = caddy_host
         current_ext = get_current_ext_dns(api, ext_domain, caddy_host)
 
         for fqdn, ip in desired_ext.items():
@@ -232,10 +249,9 @@ def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str) ->
     blocks = []
     for vmid in sorted(vms):
         info = vms[vmid]
-        enabled, port, public_name = parse_revprox(info["tags"])
-        if enabled:
-            ip = f"{prefix}.{vmid}"
-            name = public_name or info["name"]
+        ip = f"{prefix}.{vmid}"
+        for port, pubname in info["revprox"]:
+            name = pubname or info["name"]
             blocks.append(build_caddy_block(name, ext_domain, ip, port))
     return CADDY_START + "\n" + "".join(blocks) + CADDY_END + "\n"
 
@@ -266,7 +282,7 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> bool:
         return False
 
     caddyfile.write_text(new_content)
-    count = sum(1 for info in vms.values() if parse_revprox(info["tags"])[0])
+    count = sum(len(info["revprox"]) for info in vms.values())
     log.info("Caddy: wrote %d reverse_proxy block(s)", count)
     return True
 

@@ -6,6 +6,7 @@ optionally manages Caddy reverse proxy blocks.
 - VMID determines IP: VM `104 (plex)` → `plex.lan` = `10.0.0.104`
 - IPs below `.100` are never touched
 - VMs/LXCs tagged `revprox-PORT` or `revprox-PORT-pubname` get a block in the Caddyfile
+- Multiple `revprox-*` tags on one guest produce multiple blocks (one per port)
 - Runs every 5 minutes via systemd timer, logs to journald
 
 ## IP address assumption
@@ -76,6 +77,20 @@ plex.domain.tld {
 To use a **different public subdomain** than the VM name, append it to the tag:
 `revprox-PORT-pubname`. For example, VM `104 (plex)` tagged `revprox-1337-watch`
 produces `watch.domain.tld` instead of `plex.domain.tld`.
+
+### Multiple ports on one guest
+
+Add multiple `revprox-*` tags to expose more than one port. Each tag must
+resolve to a distinct public subdomain — use the pubname suffix to disambiguate:
+
+```
+revprox-8080          → plex.domain.tld    (uses VM name)
+revprox-9090-admin    → admin.domain.tld
+```
+
+If two tags would produce the same subdomain (e.g. two bare `revprox-PORT` tags,
+or two tags with the same pubname), the duplicate is dropped and logged as an
+error in the service journal.
 
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.

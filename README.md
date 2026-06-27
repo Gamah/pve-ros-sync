@@ -95,14 +95,28 @@ error in the service journal.
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.
 
-This tool does **not** manage DNS for the external `domain.tld`. To avoid NAT
-hairpin issues (QUIC errors / `CONNECTION_REFUSED`) when LAN clients access
-`name.domain.tld`, add a single wildcard static DNS entry in RouterOS pointing at
-the Caddy host:
+Everything outside the managed block is left untouched. Caddy is reloaded
+automatically when the block changes.
+
+## Split-horizon wildcard DNS (fix LAN QUIC/connection errors)
+
+When LAN clients access `name.domain.tld`, public DNS resolves to your external
+IP. If your router doesn't hairpin NAT reliably — common with QUIC/HTTP3 on
+MikroTik — you'll get QUIC errors or `CONNECTION_REFUSED`.
+
+Set `caddy_host` in `config.ini` to this host's LAN IP:
+
+```ini
+[caddy]
+caddy_host = 10.0.0.X
+```
+
+The sync then maintains a single wildcard static DNS entry in RouterOS:
 
 ```
-*.domain.tld → 10.0.0.X  (Caddy's LAN IP)
+domain.tld  match-subdomain=yes  → 10.0.0.X  (Caddy's LAN IP)
 ```
 
-LAN clients then resolve the external domain directly to Caddy, bypassing NAT
-entirely. Public DNS is unaffected.
+so `*.domain.tld` resolves directly to Caddy on the LAN, bypassing NAT entirely.
+Public DNS is unaffected. The tool only creates/updates this one entry (it won't
+delete it if you later unset `caddy_host`).

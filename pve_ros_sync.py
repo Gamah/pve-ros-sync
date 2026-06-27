@@ -195,6 +195,48 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
             log.info("DNS remove %-35s (was %s)", fqdn, entry.get("address"))
             dns_path.remove(entry[".id"])
 
+    sync_wildcard_dns(cfg, dns_path)
+
+
+def sync_wildcard_dns(cfg: configparser.ConfigParser, dns_path) -> None:
+    """Maintain a single split-horizon wildcard so LAN clients resolve the external
+    domain (and all subdomains) to Caddy's LAN IP, bypassing NAT hairpin.
+
+    Creates/updates a static entry: name=<caddy domain>, match-subdomain=yes,
+    address=<caddy_host>. No-op unless Caddy is enabled and caddy_host is set.
+    """
+    if not cfg.getboolean("caddy", "enabled", fallback=False):
+        return
+    ext_domain = cfg["caddy"].get("domain", "").strip()
+    caddy_host = cfg["caddy"].get("caddy_host", "").strip()
+    if not ext_domain or not caddy_host:
+        return
+
+    existing = next(
+        (e for e in dns_path if e.get("name") == ext_domain and e.get("type", "A") == "A"),
+        None,
+    )
+
+    if existing is None:
+        log.info("DNS add    *.%-32s → %s (wildcard)", ext_domain, caddy_host)
+        dns_path.add(name=ext_domain, address=caddy_host, **{"match-subdomain": "yes"})
+        return
+
+    needs_update = (
+        existing.get("address") != caddy_host
+        or existing.get("match-subdomain") not in ("true", "yes")
+    )
+    if needs_update:
+        log.info("DNS update *.%-32s → %s (was %s) (wildcard)",
+                 ext_domain, caddy_host, existing.get("address"))
+        dns_path.update(**{
+            ".id": existing[".id"],
+            "address": caddy_host,
+            "match-subdomain": "yes",
+        })
+    else:
+        log.debug("DNS ok     *.%s → %s (wildcard)", ext_domain, caddy_host)
+
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────
 

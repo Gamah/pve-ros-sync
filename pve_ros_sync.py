@@ -135,18 +135,6 @@ def ros_connect(cfg: configparser.ConfigParser):
     return api
 
 
-def get_current_ext_dns(api, ext_domain: str, caddy_host: str) -> dict[str, dict]:
-    """Return DNS static entries for *.ext_domain pointing to caddy_host (split-horizon)."""
-    result = {}
-    suffix = "." + ext_domain
-    dns_path = api.path("ip", "dns", "static")
-    for entry in dns_path:
-        if entry.get("address") == caddy_host and entry.get("name", "").endswith(suffix):
-            result[entry["name"]] = entry
-    log.info("ROS: found %d existing split-horizon DNS entries", len(result))
-    return result
-
-
 def get_current_dns(api, prefix: str, domain: str) -> dict[str, dict]:
     """Return all DNS static entries whose IP falls in prefix.100–255 and name ends in domain."""
     result = {}
@@ -206,32 +194,6 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
         if fqdn not in desired:
             log.info("DNS remove %-35s (was %s)", fqdn, entry.get("address"))
             dns_path.remove(entry[".id"])
-
-    # Split-horizon DNS: resolve external domain to Caddy's LAN IP for LAN clients,
-    # avoiding NAT hairpin issues (QUIC failures, CONNECTION_REFUSED).
-    caddy_enabled = cfg.getboolean("caddy", "enabled", fallback=False)
-    caddy_host = cfg["caddy"].get("caddy_host", "").strip() if caddy_enabled else ""
-    ext_domain = cfg["caddy"].get("domain", "").strip() if caddy_enabled else ""
-
-    if caddy_host and ext_domain:
-        desired_ext: dict[str, str] = {}
-        for vmid, info in vms.items():
-            for _port, pubname in info["revprox"]:
-                fqdn = f"{(pubname or info['name'])}.{ext_domain}"
-                desired_ext[fqdn] = caddy_host
-        current_ext = get_current_ext_dns(api, ext_domain, caddy_host)
-
-        for fqdn, ip in desired_ext.items():
-            if fqdn not in current_ext:
-                log.info("DNS add    %-35s → %s (split-horizon)", fqdn, ip)
-                dns_path.add(name=fqdn, address=ip)
-            else:
-                log.debug("DNS ok     %s → %s (split-horizon)", fqdn, ip)
-
-        for fqdn, entry in current_ext.items():
-            if fqdn not in desired_ext:
-                log.info("DNS remove %-35s (split-horizon)", fqdn)
-                dns_path.remove(entry[".id"])
 
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────

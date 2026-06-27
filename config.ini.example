@@ -39,6 +39,3 @@ enabled = true
 caddyfile = /etc/caddy/Caddyfile
 ; External domain used for reverse proxy blocks
 domain = domain.tld
-; LAN IP of the Caddy server. When set, creates split-horizon DNS entries in RouterOS
-; so LAN clients resolve name.domain directly to this IP, bypassing NAT hairpin issues.
-; caddy_host = 10.0.0.X

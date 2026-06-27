@@ -45,6 +45,20 @@ systemctl start pve-ros-sync.service   # test run
 journalctl -u pve-ros-sync -f          # watch output
 ```
 
+### Dry run
+
+Preview every RouterOS DNS and Caddyfile change without applying anything:
+
+```bash
+/usr/local/lib/pve-ros-sync/venv/bin/python \
+  /usr/local/lib/pve-ros-sync/pve_ros_sync.py --dry-run
+```
+
+It still reads from Proxmox and RouterOS, but logs each entry it *would* add,
+update, or remove (and the Caddy block it *would* write) instead of making the
+change. Use `PVE_ROS_SYNC_CONFIG=/path/to/config.ini` to point at an alternate
+config.
+
 ## Proxmox setup
 
 ```bash

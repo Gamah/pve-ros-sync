@@ -135,6 +135,25 @@ def ros_connect(cfg: configparser.ConfigParser):
     return api
 
 
+class DryRunDNS:
+    """Wraps an ``ip/dns/static`` path: reads pass through, writes are logged only."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __iter__(self):
+        return iter(self._real)
+
+    def add(self, **kw):
+        log.info("DRY-RUN  would add    %s", kw)
+
+    def update(self, **kw):
+        log.info("DRY-RUN  would update %s", kw)
+
+    def remove(self, *ids):
+        log.info("DRY-RUN  would remove %s", ", ".join(ids))
+
+
 def get_current_dns(api, prefix: str, domain: str) -> dict[str, dict]:
     """Return all DNS static entries whose IP falls in prefix.100–255 and name ends in domain."""
     result = {}
@@ -159,7 +178,7 @@ def get_current_dns(api, prefix: str, domain: str) -> dict[str, dict]:
     return result
 
 
-def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
+def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict], dry_run: bool = False) -> None:
     domain = cfg["dns"]["domain"]
     prefix = cfg["dns"]["network_prefix"]
 
@@ -170,6 +189,8 @@ def sync_dns(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> None:
 
     api = ros_connect(cfg)
     dns_path = api.path("ip", "dns", "static")
+    if dry_run:
+        dns_path = DryRunDNS(dns_path)
     current = get_current_dns(api, prefix, domain)
 
     # Add / update
@@ -260,7 +281,7 @@ def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str) ->
     return CADDY_START + "\n" + "".join(blocks) + CADDY_END + "\n"
 
 
-def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> bool:
+def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict], dry_run: bool = False) -> bool:
     """Rewrite managed section of Caddyfile. Returns True if the file changed."""
     caddy_cfg = cfg["caddy"]
     caddyfile = Path(caddy_cfg["caddyfile"])
@@ -285,8 +306,13 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict]) -> bool:
         log.debug("Caddy: no changes")
         return False
 
-    caddyfile.write_text(new_content)
     count = sum(len(info["revprox"]) for info in vms.values())
+    if dry_run:
+        log.info("DRY-RUN  Caddy would write %d block(s) to %s:\n%s",
+                 count, caddyfile, new_block)
+        return True
+
+    caddyfile.write_text(new_content)
     log.info("Caddy: wrote %d reverse_proxy block(s)", count)
     return True
 
@@ -306,10 +332,12 @@ def reload_caddy(caddyfile: str) -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    dry_run = "--dry-run" in sys.argv[1:] or "-n" in sys.argv[1:]
+
     config_path = os.environ.get("PVE_ROS_SYNC_CONFIG", "/etc/pve-ros-sync/config.ini")
     cfg = load_config(config_path)
 
-    log.info("=== pve-ros-sync starting ===")
+    log.info("=== pve-ros-sync starting%s ===", " (DRY RUN — no changes applied)" if dry_run else "")
 
     try:
         vms = get_pve_vms(cfg)
@@ -318,14 +346,14 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        sync_dns(cfg, vms)
+        sync_dns(cfg, vms, dry_run=dry_run)
     except Exception as exc:
         log.error("DNS sync failed: %s", exc)
 
     if cfg.getboolean("caddy", "enabled", fallback=False):
         try:
-            changed = sync_caddy(cfg, vms)
-            if changed:
+            changed = sync_caddy(cfg, vms, dry_run=dry_run)
+            if changed and not dry_run:
                 reload_caddy(cfg["caddy"]["caddyfile"])
         except Exception as exc:
             log.error("Caddy sync failed: %s", exc)

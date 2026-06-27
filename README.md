@@ -123,14 +123,27 @@ Set `caddy_host` in `config.ini` to this host's LAN IP:
 ```ini
 [caddy]
 caddy_host = 10.0.0.X
+; wildcard_mode = regexp   ; default; see below
 ```
 
-The sync then maintains a single wildcard static DNS entry in RouterOS:
+The sync then maintains a single wildcard static DNS entry in RouterOS so
+`*.domain.tld` (and the apex) resolves directly to Caddy on the LAN, bypassing
+NAT entirely. Public DNS is unaffected. The tool only creates/updates this one
+entry (it won't delete it if you later unset `caddy_host`).
+
+**RouterOS version matters.** `match-subdomain` only exists on RouterOS **v7**;
+on **v6** the static DNS entry has no such field — you must use a `regexp` entry.
+Control this with `wildcard_mode`:
 
 ```
-domain.tld  match-subdomain=yes  → 10.0.0.X  (Caddy's LAN IP)
+wildcard_mode = regexp           (default — works on v6 AND v7)
+  → regexp=(.*\.)?domain\.tld$   address=10.0.0.X
+
+wildcard_mode = match-subdomain  (v7 only)
+  → name=domain.tld  match-subdomain=yes  address=10.0.0.X
 ```
 
-so `*.domain.tld` resolves directly to Caddy on the LAN, bypassing NAT entirely.
-Public DNS is unaffected. The tool only creates/updates this one entry (it won't
-delete it if you later unset `caddy_host`).
+The default `regexp` works everywhere, so most setups need only set `caddy_host`.
+If you switch modes later, the sync migrates the existing entry automatically.
+Note: a stale hand-made entry with the literal name `*.domain.tld` is **not** a
+real wildcard on RouterOS (the `*` is literal) — delete it.

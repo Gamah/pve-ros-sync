@@ -223,8 +223,12 @@ def sync_wildcard_dns(cfg: configparser.ConfigParser, dns_path) -> None:
     """Maintain a single split-horizon wildcard so LAN clients resolve the external
     domain (and all subdomains) to Caddy's LAN IP, bypassing NAT hairpin.
 
-    Creates/updates a static entry: name=<caddy domain>, match-subdomain=yes,
-    address=<caddy_host>. No-op unless Caddy is enabled and caddy_host is set.
+    Two matching modes are supported via ``caddy.wildcard_mode``:
+      regexp          (default) — works on RouterOS v6 and v7. Writes a ``regexp``
+                                   entry matching the apex and all subdomains.
+      match-subdomain — RouterOS v7 only. Writes name=<domain>, match-subdomain=yes.
+
+    No-op unless Caddy is enabled and caddy_host is set.
     """
     if not cfg.getboolean("caddy", "enabled", fallback=False):
         return
@@ -233,30 +237,57 @@ def sync_wildcard_dns(cfg: configparser.ConfigParser, dns_path) -> None:
     if not ext_domain or not caddy_host:
         return
 
+    mode = cfg["caddy"].get("wildcard_mode", "regexp").strip().lower()
+    if mode not in ("regexp", "match-subdomain"):
+        log.error("caddy.wildcard_mode must be 'regexp' or 'match-subdomain', got %r "
+                  "— skipping wildcard", mode)
+        return
+
+    # Matches the apex (4tw.pw) and any subdomain (irc.4tw.pw, a.b.4tw.pw).
+    regexp = r"(.*\.)?" + ext_domain.replace(".", r"\.") + "$"
+
+    if mode == "regexp":
+        desired = {"regexp": regexp, "address": caddy_host}
+        label = f"/{regexp}/"
+    else:
+        desired = {"name": ext_domain, "address": caddy_host, "match-subdomain": "yes"}
+        label = f"*.{ext_domain}"
+
+    # Find an existing wildcard entry for this domain in either shape, so we can
+    # update in place or migrate between modes.
     existing = next(
-        (e for e in dns_path if e.get("name") == ext_domain and e.get("type", "A") == "A"),
+        (e for e in dns_path
+         if e.get("type", "A") == "A"
+         and (e.get("regexp") == regexp or e.get("name") == ext_domain)),
         None,
     )
 
     if existing is None:
-        log.info("DNS add    *.%-32s → %s (wildcard)", ext_domain, caddy_host)
-        dns_path.add(name=ext_domain, address=caddy_host, **{"match-subdomain": "yes"})
+        log.info("DNS add    %-35s → %s (wildcard, %s)", label, caddy_host, mode)
+        dns_path.add(**desired)
         return
 
-    needs_update = (
-        existing.get("address") != caddy_host
-        or existing.get("match-subdomain") not in ("true", "yes")
+    same_shape = (
+        (mode == "regexp" and existing.get("regexp") == regexp and not existing.get("name"))
+        or (mode == "match-subdomain" and existing.get("name") == ext_domain
+            and not existing.get("regexp"))
     )
-    if needs_update:
-        log.info("DNS update *.%-32s → %s (was %s) (wildcard)",
-                 ext_domain, caddy_host, existing.get("address"))
-        dns_path.update(**{
-            ".id": existing[".id"],
-            "address": caddy_host,
-            "match-subdomain": "yes",
-        })
+
+    if same_shape:
+        correct = existing.get("address") == caddy_host and (
+            mode == "regexp" or existing.get("match-subdomain") in ("true", "yes")
+        )
+        if correct:
+            log.debug("DNS ok     %s → %s (wildcard, %s)", label, caddy_host, mode)
+            return
+        log.info("DNS update %-35s → %s (was %s) (wildcard, %s)",
+                 label, caddy_host, existing.get("address"), mode)
+        dns_path.update(**{".id": existing[".id"], **desired})
     else:
-        log.debug("DNS ok     *.%s → %s (wildcard)", ext_domain, caddy_host)
+        # Shape differs (e.g. switching modes): replace it.
+        log.info("DNS migrate %-34s → %s (wildcard → %s)", label, caddy_host, mode)
+        dns_path.remove(existing[".id"])
+        dns_path.add(**desired)
 
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────

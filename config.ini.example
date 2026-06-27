@@ -40,6 +40,10 @@ caddyfile = /etc/caddy/Caddyfile
 ; External domain used for reverse proxy blocks
 domain = domain.tld
 ; LAN IP of the Caddy host (this machine). When set, the sync maintains a single
-; wildcard RouterOS static DNS entry (name=domain, match-subdomain=yes) pointing
-; *.domain to this IP, so LAN clients reach Caddy directly and bypass NAT hairpin.
+; wildcard RouterOS static DNS entry pointing *.domain (and the apex) to this IP,
+; so LAN clients reach Caddy directly and bypass NAT hairpin.
 ; caddy_host = 10.0.0.X
+; How the wildcard entry matches subdomains:
+;   regexp          (default) — works on RouterOS v6 AND v7 (writes a regexp entry)
+;   match-subdomain — RouterOS v7 only (match-subdomain is not available on v6)
+; wildcard_mode = regexp

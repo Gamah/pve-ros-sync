@@ -175,6 +175,8 @@ page instead of the service.
   build. To update Caddy or the module (pinned in `deploy.sh`):
   `CADDY_REBUILD=1 bash deploy.sh`. A drop-in in `caddy.service.d/` gives
   Caddy the bouncer key and drops `--environ` so secrets aren't logged.
+- New bans reach Caddy within 5s (`ticker_interval`). A ban stops new
+  requests only: open websockets stay up until `systemctl reload caddy`.
 - The sync writes the bouncer's global options between
   `# BEGIN/END pve-ros-sync global` inside the Caddyfile's global block
   (creating the block if there is none).

@@ -337,12 +337,15 @@ def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str,
 
 def build_global_section() -> str:
     """Lines for inside Caddy's global options block. The bouncer key is read
-    from Caddy's environment (EnvironmentFile drop-in → /etc/pve-ros-sync/.env)."""
+    from Caddy's environment (EnvironmentFile drop-in → /etc/pve-ros-sync/.env).
+    New bans reach Caddy within ticker_interval (bouncer default 60s); each pull
+    is a small delta over localhost."""
     return (
         f"    {GLOBAL_START}\n"
         f"    crowdsec {{\n"
         f"        api_url http://127.0.0.1:8080\n"
         f"        api_key {{env.CROWDSEC_API_KEY}}\n"
+        f"        ticker_interval 5s\n"
         f"        enable_caddy_error\n"
         f"    }}\n"
         f"    {GLOBAL_END}\n"

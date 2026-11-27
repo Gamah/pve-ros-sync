@@ -300,14 +300,17 @@ def build_caddy_block(name: str, ext_domain: str, ip: str, port: str | None,
                       banpage_port: int) -> str:
     """One site. `log` records every request to Caddy's journal, so a proxied
     service can be traced back to the client that reached it. The CrowdSec
-    bouncer runs first; a ban raises a 403 error, which the error route hands
+    bouncer runs first; then .env and .git paths get a 404 whatever the
+    upstream would have said; a ban raises a 403 error, which the error route hands
     to the local ban page with the request's uuid (the same one in the log)."""
     upstream = ip if not port else f"{ip}:{port}"
     return (
         f"{name}.{ext_domain} {{\n"
         f"    log\n"
+        f"    @secrets path_regexp (^|/)\\.(env|git)([^A-Za-z0-9]|$)\n"
         f"    route {{\n"
         f"        crowdsec\n"
+        f"        respond @secrets 404\n"
         f"        reverse_proxy {upstream}\n"
         f"    }}\n"
         f"    handle_errors 403 {{\n"

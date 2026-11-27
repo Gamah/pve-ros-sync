@@ -84,8 +84,10 @@ a managed block using the VM name as the public subdomain:
 # BEGIN pve-ros-sync
 plex.domain.tld {
     log
+    @secrets path_regexp (^|/)\.(env|git)([^A-Za-z0-9]|$)
     route {
         crowdsec
+        respond @secrets 404
         reverse_proxy 10.0.0.104:1337
     }
     handle_errors 403 {
@@ -115,6 +117,10 @@ error in the service journal.
 
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.
+
+`.env*` and `.git*`-style paths (`/.env`, `/x/.env.bak`, `/.git/config`,
+`/.git-credentials`) get a 404 from Caddy on every site and never reach the
+service; the probe is still logged for CrowdSec.
 
 Every block carries `log`, so each request is written to Caddy's journal as
 JSON, with the connecting address in `request.remote_ip`:

@@ -1,0 +1,6 @@
+# Merged over /etc/crowdsec/config.yaml. Alerts are kept a year so the
+# escalating ban length in profiles.yaml.local remembers repeat offenders.
+db_config:
+  flush:
+    max_age: 365d
+    max_items: 100000

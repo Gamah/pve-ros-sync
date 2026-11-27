@@ -47,3 +47,12 @@ domain = domain.tld
 ;   regexp          (default) — works on RouterOS v6 AND v7 (writes a regexp entry)
 ;   match-subdomain — RouterOS v7 only (match-subdomain is not available on v6)
 ; wildcard_mode = regexp
+
+
+[banpage]
+; The 403 page CrowdSec-banned visitors see shows <subdomain>@contact_domain
+; for the site they hit, plus contact_email if set.
+contact_domain =
+; contact_email = admin@example.com
+; Local port the ban page listens on (127.0.0.1 only; Caddy proxies to it).
+; port = 9180

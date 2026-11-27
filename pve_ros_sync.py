@@ -5,6 +5,8 @@ import configparser
 import logging
 import os
 import re
+import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,8 @@ log = logging.getLogger("pve-ros-sync")
 
 CADDY_START = "# BEGIN pve-ros-sync"
 CADDY_END = "# END pve-ros-sync"
+GLOBAL_START = "# BEGIN pve-ros-sync global"
+GLOBAL_END = "# END pve-ros-sync global"
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -292,27 +296,76 @@ def sync_wildcard_dns(cfg: configparser.ConfigParser, dns_path) -> None:
 
 # ── Caddy ─────────────────────────────────────────────────────────────────────
 
-def build_caddy_block(name: str, ext_domain: str, ip: str, port: str | None) -> str:
+def build_caddy_block(name: str, ext_domain: str, ip: str, port: str | None,
+                      banpage_port: int) -> str:
     """One site. `log` records every request to Caddy's journal, so a proxied
-    service can be traced back to the client that reached it."""
+    service can be traced back to the client that reached it. The CrowdSec
+    bouncer runs first; a ban raises a 403 error, which the error route hands
+    to the local ban page with the request's uuid (the same one in the log)."""
     upstream = ip if not port else f"{ip}:{port}"
     return (
         f"{name}.{ext_domain} {{\n"
         f"    log\n"
-        f"    reverse_proxy {upstream}\n"
+        f"    route {{\n"
+        f"        crowdsec\n"
+        f"        reverse_proxy {upstream}\n"
+        f"    }}\n"
+        f"    handle_errors 403 {{\n"
+        f"        reverse_proxy 127.0.0.1:{banpage_port} {{\n"
+        f"            header_up X-Request-ID {{http.request.uuid}}\n"
+        f"            header_up X-Ban-Site {name}\n"
+        f"        }}\n"
+        f"    }}\n"
         f"}}\n"
     )
 
 
-def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str) -> str:
+def build_managed_section(vms: dict[int, dict], ext_domain: str, prefix: str,
+                          banpage_port: int) -> str:
     blocks = []
     for vmid in sorted(vms):
         info = vms[vmid]
         ip = f"{prefix}.{vmid}"
         for port, pubname in info["revprox"]:
             name = pubname or info["name"]
-            blocks.append(build_caddy_block(name, ext_domain, ip, port))
+            blocks.append(build_caddy_block(name, ext_domain, ip, port, banpage_port))
     return CADDY_START + "\n" + "".join(blocks) + CADDY_END + "\n"
+
+
+def build_global_section() -> str:
+    """Lines for inside Caddy's global options block. The bouncer key is read
+    from Caddy's environment (EnvironmentFile drop-in → /etc/pve-ros-sync/.env)."""
+    return (
+        f"    {GLOBAL_START}\n"
+        f"    crowdsec {{\n"
+        f"        api_url http://127.0.0.1:8080\n"
+        f"        api_key {{env.CROWDSEC_API_KEY}}\n"
+        f"        enable_caddy_error\n"
+        f"    }}\n"
+        f"    {GLOBAL_END}\n"
+    )
+
+
+def put_global_section(content: str) -> str:
+    """Replace the managed lines in the global options block, adding them (and
+    the block, if the Caddyfile has none) on first run."""
+    section = build_global_section()
+    pattern = re.compile(
+        rf"^[ \t]*{re.escape(GLOBAL_START)}\n.*?^[ \t]*{re.escape(GLOBAL_END)}\n?",
+        re.DOTALL | re.MULTILINE,
+    )
+    if pattern.search(content):
+        return pattern.sub(lambda _: section, content)
+    lines = content.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "{":
+            # The global options block is always the first block in a Caddyfile.
+            return "".join(lines[: i + 1]) + section + "".join(lines[i + 1:])
+        break
+    return "{\n" + section + "}\n\n" + content
 
 
 def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict], dry_run: bool = False) -> bool:
@@ -321,9 +374,10 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict], dry_run: bo
     caddyfile = Path(caddy_cfg["caddyfile"])
     ext_domain = caddy_cfg["domain"]
     prefix = cfg["dns"]["network_prefix"]
+    banpage_port = cfg.getint("banpage", "port", fallback=9180)
 
     old_content = caddyfile.read_text()
-    new_block = build_managed_section(vms, ext_domain, prefix)
+    new_block = build_managed_section(vms, ext_domain, prefix, banpage_port)
 
     pattern = re.compile(
         rf"^{re.escape(CADDY_START)}\n.*?^{re.escape(CADDY_END)}\n?",
@@ -331,10 +385,11 @@ def sync_caddy(cfg: configparser.ConfigParser, vms: dict[int, dict], dry_run: bo
     )
 
     if pattern.search(old_content):
-        new_content = pattern.sub(new_block, old_content)
+        new_content = pattern.sub(lambda _: new_block, old_content)
     else:
         sep = "\n" if old_content.endswith("\n") else "\n\n"
         new_content = old_content + sep + new_block
+    new_content = put_global_section(new_content)
 
     if new_content == old_content:
         log.debug("Caddy: no changes")
@@ -361,6 +416,50 @@ def reload_caddy(caddyfile: str) -> None:
         log.info("Caddy reloaded OK")
     else:
         log.error("Caddy reload failed: %s", result.stderr.strip())
+
+
+# ── CrowdSec ──────────────────────────────────────────────────────────────────
+
+ALLOWLIST = "lan"
+
+
+def cscli(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["cscli", *args], capture_output=True, text=True)
+
+
+def sync_allowlist(cfg: configparser.ConfigParser, dry_run: bool = False) -> None:
+    """Keep CrowdSec's `lan` allowlist at exactly <network_prefix>.0/24, so
+    nothing on the LAN is ever banned (it also filters community blocklists)."""
+    want = f"{cfg['dns']['network_prefix']}.0/24"
+    if shutil.which("cscli") is None:
+        log.warning("CrowdSec: cscli not found, LAN allowlist not synced")
+        return
+    if dry_run:
+        log.info("DRY-RUN  CrowdSec allowlist %s would be exactly %s", ALLOWLIST, want)
+        return
+
+    listed = cscli("allowlists", "list", "-o", "json")
+    names = {a.get("name") for a in json.loads(listed.stdout or "null") or []} \
+        if listed.returncode == 0 else set()
+    if ALLOWLIST not in names:
+        r = cscli("allowlists", "create", ALLOWLIST, "-d", "LAN, managed by pve-ros-sync")
+        if r.returncode != 0:
+            raise RuntimeError(f"allowlists create: {r.stderr.strip()}")
+        log.info("CrowdSec: created allowlist %s", ALLOWLIST)
+
+    r = cscli("allowlists", "inspect", ALLOWLIST, "-o", "json")
+    if r.returncode != 0:
+        raise RuntimeError(f"allowlists inspect: {r.stderr.strip()}")
+    have = {i["value"] for i in json.loads(r.stdout).get("items") or []}
+    if want not in have:
+        r = cscli("allowlists", "add", ALLOWLIST, want, "-d", "network_prefix")
+        if r.returncode != 0:
+            raise RuntimeError(f"allowlists add: {r.stderr.strip()}")
+        log.info("CrowdSec: allowlisted %s", want)
+    stale = sorted(have - {want})
+    if stale:
+        cscli("allowlists", "remove", ALLOWLIST, *stale)
+        log.info("CrowdSec: removed %s from allowlist", ", ".join(stale))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -391,6 +490,11 @@ def main() -> None:
                 reload_caddy(cfg["caddy"]["caddyfile"])
         except Exception as exc:
             log.error("Caddy sync failed: %s", exc)
+
+    try:
+        sync_allowlist(cfg, dry_run=dry_run)
+    except Exception as exc:
+        log.error("CrowdSec allowlist sync failed: %s", exc)
 
     log.info("=== pve-ros-sync done ===")
 

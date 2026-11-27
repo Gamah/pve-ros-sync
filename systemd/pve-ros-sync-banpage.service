@@ -1,0 +1,18 @@
+[Unit]
+Description=pve-ros-sync ban page (403 for CrowdSec bans)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/pve-ros-sync/ban_page.py
+EnvironmentFile=/etc/pve-ros-sync/.env
+LoadCredential=config.ini:/etc/pve-ros-sync/config.ini
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+Restart=always
+SyslogIdentifier=ban-page
+
+[Install]
+WantedBy=multi-user.target

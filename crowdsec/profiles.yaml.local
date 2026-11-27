@@ -1,0 +1,10 @@
+# Read before /etc/crowdsec/profiles.yaml. Each repeat ban on an IP is longer:
+# 4h, 24h, 6d, 36d, 216d, then 10 years.
+name: escalating_ip_ban
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+  - type: ban
+    duration: 4h
+duration_expr: "Sprintf('%dh', [4, 24, 144, 864, 5184, 87600][min(GetDecisionsCount(Alert.GetValue()), 5)])"
+on_success: break

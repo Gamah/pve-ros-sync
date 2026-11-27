@@ -1,0 +1,7 @@
+# Caddy's JSON access log, read from the journal. type: syslog lets the
+# syslog-logs parser split off "caddy[PID]:" before caddy-logs reads the JSON.
+source: journalctl
+journalctl_filter:
+  - "_SYSTEMD_UNIT=caddy.service"
+labels:
+  type: syslog

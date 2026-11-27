@@ -83,6 +83,7 @@ a managed block using the VM name as the public subdomain:
 ```
 # BEGIN pve-ros-sync
 plex.domain.tld {
+    log
     reverse_proxy 10.0.0.104:1337
 }
 # END pve-ros-sync
@@ -109,8 +110,9 @@ error in the service journal.
 Everything outside the managed block is left untouched. Caddy is reloaded
 automatically when the block changes.
 
-Everything outside the managed block is left untouched. Caddy is reloaded
-automatically when the block changes.
+Every block carries `log`, so each request is written to Caddy's journal as
+JSON, with the connecting address in `request.remote_ip`:
+`journalctl -u caddy | grep '"host":"plex.domain.tld"'`.
 
 ## Split-horizon wildcard DNS (fix LAN QUIC/connection errors)
 

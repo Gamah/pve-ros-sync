@@ -293,9 +293,12 @@ def sync_wildcard_dns(cfg: configparser.ConfigParser, dns_path) -> None:
 # ── Caddy ─────────────────────────────────────────────────────────────────────
 
 def build_caddy_block(name: str, ext_domain: str, ip: str, port: str | None) -> str:
+    """One site. `log` records every request to Caddy's journal, so a proxied
+    service can be traced back to the client that reached it."""
     upstream = ip if not port else f"{ip}:{port}"
     return (
         f"{name}.{ext_domain} {{\n"
+        f"    log\n"
         f"    reverse_proxy {upstream}\n"
         f"}}\n"
     )
